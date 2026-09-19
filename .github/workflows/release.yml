@@ -76,25 +76,44 @@ jobs:
       - name: Send APK to Telegram Group
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: '@myzanori'
+          # Set a repository variable named TELEGRAM_CHAT_ID
+          # (Settings -> Secrets and variables -> Actions -> Variables).
+          # Use the numeric id for groups/channels, e.g. -1001234567890, or
+          # "@public_channel_name" for a public channel the bot is an admin of.
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID || '@myzanori' }}
           RELEASE_URL: 'https://github.com/myzanori/CW-pharma/releases/tag/${{ env.version_tag }}'
           REPO_URL: 'https://github.com/myzanori/CW-pharma'
         run: |
           echo "Verifying APK at $apk_path"
           ls -la "$apk_path"
-          
+
+          # Telegram captions are capped at 1024 chars, and HTML parse mode needs
+          # &, < and > escaped or Telegram replies with "can't parse entities".
+          CHANGELOG_HTML=$(printf '%s' "$changelog" \
+            | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
+          if [ ${#CHANGELOG_HTML} -gt 700 ]; then
+            CHANGELOG_HTML="${CHANGELOG_HTML:0:700}…"
+          fi
+
           CAPTION="<b>🚀 New CW Pharmacy PDF Saver Release: ${{ env.version_tag }}</b>
-          
+
           <b>📝 Changelog:</b>
-          ${{ env.changelog }}
-          
+          $CHANGELOG_HTML
+
           📦 <a href=\"$REPO_URL\">GitHub Repository</a>
           🔗 <a href=\"$RELEASE_URL\">Download / View Release</a>
-          
+
           <i>Install this APK to use the new module update!</i>"
-          
-          curl -v -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+
+          # --fail-with-body makes curl exit non-zero on HTTP 4xx/5xx instead of
+          # printing a 400 while the step still shows as green.
+          curl -sS --fail-with-body -o telegram-response.json -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
             --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
             -F document="@${apk_path}" \
             --form-string "caption=$CAPTION" \
             --form-string "parse_mode=HTML"
+
+          cat telegram-response.json
+          echo
+          echo "Telegram accepted the upload."
