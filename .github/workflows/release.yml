@@ -80,7 +80,7 @@ jobs:
           # (Settings -> Secrets and variables -> Actions -> Variables).
           # Use the numeric id for groups/channels, e.g. -1001234567890, or
           # "@public_channel_name" for a public channel the bot is an admin of.
-          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID || '@myzanori' }}
+          TELEGRAM_CHAT_ID: ${{ vars.TELEGRAM_CHAT_ID || '@myzanori_chat' }}
           RELEASE_URL: 'https://github.com/myzanori/CW-pharma/releases/tag/${{ env.version_tag }}'
           REPO_URL: 'https://github.com/myzanori/CW-pharma'
         run: |
