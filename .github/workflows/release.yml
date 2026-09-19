@@ -88,14 +88,9 @@ jobs:
           echo "Verifying APK at $apk_path"
           ls -la "$apk_path"
 
-          # Telegram captions cap at 1024 chars and HTML mode needs &, <, > escaped.
-          # The detailed changelog is too long for a caption, so send the APK with a
-          # short caption and post the full changelog as its own message after it.
-          escape_html() {
-            printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
-          }
-
-          CHANGELOG_HTML=$(escape_html "$changelog")
+          # Captions cap at 1024 chars, so the APK gets a short caption and the full
+          # changelog is converted to Telegram HTML and posted as a reply below it.
+          CHANGELOG_HTML=$(python3 .github/scripts/md_to_telegram.py <<< "$changelog")
           if [ ${#CHANGELOG_HTML} -gt 4000 ]; then
             CHANGELOG_HTML="${CHANGELOG_HTML:0:4000}…"
           fi
@@ -119,6 +114,10 @@ jobs:
           cat telegram-doc.json
           echo
 
+          # Reply to the APK message so the changelog stays grouped with the file.
+          DOC_MSG_ID=$(python3 -c "import json; print(json.load(open('telegram-doc.json'))['result']['message_id'])")
+          echo "APK message id: $DOC_MSG_ID"
+
           CHANGELOG_MSG="<b>📝 Changelog - ${{ env.version_tag }}</b>
 
           $CHANGELOG_HTML"
@@ -128,7 +127,8 @@ jobs:
             --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
             --form-string "text=$CHANGELOG_MSG" \
             --form-string "parse_mode=HTML" \
-            --form-string "disable_web_page_preview=true"
+            --form-string "disable_web_page_preview=true" \
+            --form-string "reply_to_message_id=${DOC_MSG_ID}"
 
           cat telegram-note.json
           echo
