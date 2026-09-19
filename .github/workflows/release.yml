@@ -21,21 +21,22 @@ jobs:
           # 1. Extract Version Name strictly from the main configuration block
           VERSION_NAME=$(grep -E '^[ \t]*versionName\s+"' app/build.gradle | awk -F '"' '{print $2}')
           VERSION_TAG="v$VERSION_NAME"
-          
-          # 2. Automatically get commit messages since last tag
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -z "$LAST_TAG" ]; then
-            CHANGELOG=$(git log -1 --pretty=format:"- %s")
-          else
-            CHANGELOG=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s")
-            # Fallback to latest commit if nothing found (e.g. running on the same commit)
-            if [ -z "$CHANGELOG" ]; then
-              CHANGELOG=$(git log -1 --pretty=format:"- %s")
-            fi
-          fi
-          
           echo "version_tag=$VERSION_TAG" >> $GITHUB_ENV
-          
+
+          # 2. Release notes are the matching "## [vX.Y.Z]" section of CHANGELOG.md.
+          #    This keeps the published changelog curated and detailed instead of
+          #    being auto-generated from raw commit subjects.
+          CHANGELOG=$(awk -v ver="[$VERSION_TAG]" '
+            index($0, "## " ver) == 1 { capture = 1; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md | sed -e '/./,$!d')
+
+          # 3. Fall back to the full commit body if the section is missing.
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG=$(git log -1 --pretty=format:"%B")
+          fi
+
           # Handle multiline string for GitHub Environment Variables
           EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
           echo "changelog<<$EOF" >> $GITHUB_ENV
@@ -87,33 +88,48 @@ jobs:
           echo "Verifying APK at $apk_path"
           ls -la "$apk_path"
 
-          # Telegram captions are capped at 1024 chars, and HTML parse mode needs
-          # &, < and > escaped or Telegram replies with "can't parse entities".
-          CHANGELOG_HTML=$(printf '%s' "$changelog" \
-            | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')
-          if [ ${#CHANGELOG_HTML} -gt 700 ]; then
-            CHANGELOG_HTML="${CHANGELOG_HTML:0:700}…"
+          # Telegram captions cap at 1024 chars and HTML mode needs &, <, > escaped.
+          # The detailed changelog is too long for a caption, so send the APK with a
+          # short caption and post the full changelog as its own message after it.
+          escape_html() {
+            printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+          }
+
+          CHANGELOG_HTML=$(escape_html "$changelog")
+          if [ ${#CHANGELOG_HTML} -gt 4000 ]; then
+            CHANGELOG_HTML="${CHANGELOG_HTML:0:4000}…"
           fi
 
-          CAPTION="<b>🚀 New CW Pharmacy PDF Saver Release: ${{ env.version_tag }}</b>
-
-          <b>📝 Changelog:</b>
-          $CHANGELOG_HTML
+          CAPTION="<b>🚀 CW Pharmacy PDF Saver ${{ env.version_tag }}</b>
 
           📦 <a href=\"$REPO_URL\">GitHub Repository</a>
           🔗 <a href=\"$RELEASE_URL\">Download / View Release</a>
 
-          <i>Install this APK to use the new module update!</i>"
+          <i>Install this APK to use the new module update. Full changelog below.</i>"
 
           # --fail-with-body makes curl exit non-zero on HTTP 4xx/5xx instead of
           # printing a 400 while the step still shows as green.
-          curl -sS --fail-with-body -o telegram-response.json -X POST \
+          curl -sS --fail-with-body -o telegram-doc.json -X POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
             --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
             -F document="@${apk_path}" \
             --form-string "caption=$CAPTION" \
             --form-string "parse_mode=HTML"
 
-          cat telegram-response.json
+          cat telegram-doc.json
           echo
-          echo "Telegram accepted the upload."
+
+          CHANGELOG_MSG="<b>📝 Changelog - ${{ env.version_tag }}</b>
+
+          $CHANGELOG_HTML"
+
+          curl -sS --fail-with-body -o telegram-note.json -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --form-string "chat_id=${TELEGRAM_CHAT_ID}" \
+            --form-string "text=$CHANGELOG_MSG" \
+            --form-string "parse_mode=HTML" \
+            --form-string "disable_web_page_preview=true"
+
+          cat telegram-note.json
+          echo
+          echo "Telegram accepted the APK and the full changelog."
