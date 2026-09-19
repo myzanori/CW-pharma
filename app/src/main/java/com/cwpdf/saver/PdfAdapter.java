@@ -23,11 +23,24 @@ public class PdfAdapter extends RecyclerView.Adapter<PdfAdapter.PdfViewHolder> {
         this.cursor = cursor;
     }
 
+    /**
+     * Swaps in the cursor supplied by {@link androidx.loader.content.CursorLoader}.
+     *
+     * <p>The loader owns this cursor: it re-delivers the <b>same instance</b> on
+     * every {@code onLoadFinished} (for example after a stop/start cycle) and
+     * closes it itself once it is replaced. Closing it here therefore destroyed
+     * the very cursor the adapter was about to read, which surfaced as
+     * "attempt to re-open an already-closed object: SQLiteQuery" during layout.
+     * Never close it from the adapter.</p>
+     */
     public void setCursor(Cursor newCursor) {
-        if (cursor != null) {
-            cursor.close();
-        }
         cursor = newCursor;
+        notifyDataSetChanged();
+    }
+
+    /** Drops the reference on loader reset. The loader closes the cursor itself. */
+    public void clearCursor() {
+        cursor = null;
         notifyDataSetChanged();
     }
 
@@ -40,15 +53,16 @@ public class PdfAdapter extends RecyclerView.Adapter<PdfAdapter.PdfViewHolder> {
 
     @Override
     public void onBindViewHolder(@NonNull PdfViewHolder holder, int position) {
-        if (!cursor.moveToPosition(position)) {
+        Cursor c = cursor;
+        if (c == null || c.isClosed() || !c.moveToPosition(position)) {
             return;
         }
 
-        String title = cursor.getString(cursor.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_TITLE));
-        String url = cursor.getString(cursor.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_URL));
-        String uriString = cursor.getString(cursor.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_URI));
-        String key = cursor.getString(cursor.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_KEY));
-        boolean isEncrypted = cursor.getInt(cursor.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_IS_ENCRYPTED)) == 1;
+        String title = c.getString(c.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_TITLE));
+        String url = c.getString(c.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_URL));
+        String uriString = c.getString(c.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_URI));
+        String key = c.getString(c.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_KEY));
+        boolean isEncrypted = c.getInt(c.getColumnIndexOrThrow(PdfDatabaseHelper.COLUMN_IS_ENCRYPTED)) == 1;
 
         holder.textTitle.setText(title != null && !title.isEmpty() ? title : "Unknown PDF");
         holder.textStatus.setText(isEncrypted ? "🔒 Encrypted PDF" : "📄 Standard PDF");
@@ -84,7 +98,8 @@ public class PdfAdapter extends RecyclerView.Adapter<PdfAdapter.PdfViewHolder> {
 
     @Override
     public int getItemCount() {
-        return cursor == null ? 0 : cursor.getCount();
+        Cursor c = cursor;
+        return (c == null || c.isClosed()) ? 0 : c.getCount();
     }
 
     static class PdfViewHolder extends RecyclerView.ViewHolder {

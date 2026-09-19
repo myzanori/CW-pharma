@@ -13,3 +13,6 @@ local.properties
 
 # App specific
 app/build/
+
+# JVM heap dumps (e.g. from an R8 / lint OOM)
+*.hprof

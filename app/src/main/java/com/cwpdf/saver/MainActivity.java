@@ -88,6 +88,7 @@ public class MainActivity extends AppCompatActivity implements LoaderManager.Loa
 
     @Override
     public void onLoaderReset(@NonNull Loader<Cursor> loader) {
-        adapter.setCursor(null);
+        // Just drop the reference - the loader closes the cursor itself.
+        adapter.clearCursor();
     }
 }
